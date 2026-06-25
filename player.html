@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<title>Canlı TV</title>
+<style>
+  :root { --live: #ff2d2d; }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; background: #000; overflow: hidden; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #fff; position: fixed; inset: 0;
+  }
+  #video {
+    width: 100%; height: 100%; object-fit: contain;
+    background: #000; display: block;
+  }
+
+  /* ── Üst-qat (overlay) ── */
+  .layer {
+    position: fixed; inset: 0; display: flex;
+    align-items: center; justify-content: center;
+    flex-direction: column; gap: 18px;
+    background: radial-gradient(ellipse at center, #0b0b0d 0%, #000 100%);
+    transition: opacity .35s ease;
+  }
+  .layer.hidden { opacity: 0; pointer-events: none; }
+
+  /* ── Başlat düyməsi ── */
+  .play-btn {
+    width: 92px; height: 92px; border-radius: 50%;
+    background: rgba(255,255,255,.10);
+    border: 1.5px solid rgba(255,255,255,.30);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; position: relative;
+    transition: transform .2s ease, background .2s ease;
+  }
+  .play-btn:active { transform: scale(.94); background: rgba(255,255,255,.18); }
+  .play-btn::before {
+    content: ""; display: block;
+    border-style: solid; border-width: 15px 0 15px 25px;
+    border-color: transparent transparent transparent #fff;
+    margin-left: 6px;
+  }
+  .play-btn::after {
+    content: ""; position: absolute; inset: -1.5px; border-radius: 50%;
+    border: 1.5px solid rgba(255,255,255,.45);
+    animation: pulse 2.2s ease-out infinite;
+  }
+  @keyframes pulse {
+    0%   { transform: scale(1); opacity: .6; }
+    100% { transform: scale(1.5); opacity: 0; }
+  }
+  .play-label { font-size: 15px; letter-spacing: .3px; color: rgba(255,255,255,.85); font-weight: 500; }
+
+  /* ── CANLI nişanı ── */
+  .live-badge {
+    position: fixed; top: max(14px, env(safe-area-inset-top)); left: 14px;
+    display: none; align-items: center; gap: 7px;
+    background: rgba(0,0,0,.55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    padding: 6px 11px 6px 9px; border-radius: 100px;
+    font-size: 12px; font-weight: 700; letter-spacing: 1px; z-index: 5;
+  }
+  .live-badge.show { display: flex; }
+  .live-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--live);
+    box-shadow: 0 0 0 0 rgba(255,45,45,.7); animation: blink 1.6s ease-out infinite;
+  }
+  @keyframes blink {
+    0%   { box-shadow: 0 0 0 0 rgba(255,45,45,.6); }
+    70%  { box-shadow: 0 0 0 7px rgba(255,45,45,0); }
+    100% { box-shadow: 0 0 0 0 rgba(255,45,45,0); }
+  }
+
+  /* ── Yüklənmə ── */
+  .spinner {
+    width: 46px; height: 46px; border-radius: 50%;
+    border: 3px solid rgba(255,255,255,.18); border-top-color: #fff;
+    animation: spin .9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-label { font-size: 14px; color: rgba(255,255,255,.6); }
+
+  /* ── Xəta / boş ── */
+  .msg-icon { font-size: 40px; opacity: .9; }
+  .msg-title { font-size: 18px; font-weight: 600; }
+  .msg-text { font-size: 14px; color: rgba(255,255,255,.6); max-width: 280px; text-align: center; line-height: 1.5; }
+  .retry-btn {
+    margin-top: 6px; padding: 11px 26px; border-radius: 100px;
+    background: #fff; color: #000; font-size: 15px; font-weight: 600;
+    border: none; cursor: pointer; transition: opacity .2s ease;
+  }
+  .retry-btn:active { opacity: .7; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .play-btn::after, .live-dot, .spinner { animation: none; }
+  }
+</style>
+</head>
+<body>
+  <video id="video" playsinline webkit-playsinline></video>
+
+  <div class="live-badge" id="liveBadge"><span class="live-dot"></span>CANLI</div>
+
+  <!-- Başlat -->
+  <div class="layer" id="startLayer">
+    <div class="play-btn" id="playBtn" role="button" aria-label="Yayımı başlat"></div>
+    <div class="play-label">Canlı yayımı izlə</div>
+  </div>
+
+  <!-- Yüklənmə -->
+  <div class="layer hidden" id="loadLayer">
+    <div class="spinner"></div>
+    <div class="loading-label">Yayım yüklənir…</div>
+  </div>
+
+  <!-- Xəta -->
+  <div class="layer hidden" id="errorLayer">
+    <div class="msg-icon">📡</div>
+    <div class="msg-title">Yayım açılmadı</div>
+    <div class="msg-text">İnternet bağlantını yoxla və yenidən cəhd et.</div>
+    <button class="retry-btn" id="retryBtn">Yenidən cəhd et</button>
+  </div>
+
+  <!-- Link təyin olunmayıb -->
+  <div class="layer hidden" id="noSrcLayer">
+    <div class="msg-icon">⚙️</div>
+    <div class="msg-title">Yayım linki yoxdur</div>
+    <div class="msg-text">Link bu səhifəyə hələ əlavə olunmayıb.</div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
+  <script>
+  /* ════════════════════════════════════════════════════════════
+     BURADAN DƏYİŞ — yayım (stream) linkini bura yaz:
+     Məsələn:  const DEFAULT_STREAM = "http://host:port/live/user/pass/123.m3u8";
+     Boş qoysan, link ?src= ilə ötürülə bilər:  player.html?src=LİNK
+     ════════════════════════════════════════════════════════════ */
+  const DEFAULT_STREAM = "";
+
+  const params = new URLSearchParams(location.search);
+  const STREAM = (params.get("src") || DEFAULT_STREAM || "").trim();
+  if (params.get("title")) document.title = params.get("title");
+
+  const video      = document.getElementById("video");
+  const startLayer = document.getElementById("startLayer");
+  const loadLayer  = document.getElementById("loadLayer");
+  const errorLayer = document.getElementById("errorLayer");
+  const noSrcLayer = document.getElementById("noSrcLayer");
+  const liveBadge  = document.getElementById("liveBadge");
+
+  function show(layer) {
+    [startLayer, loadLayer, errorLayer, noSrcLayer].forEach(l => l.classList.add("hidden"));
+    if (layer) layer.classList.remove("hidden");
+  }
+  function fail() { liveBadge.classList.remove("show"); show(errorLayer); }
+
+  let hls = null;
+  function start() {
+    if (!STREAM) { show(noSrcLayer); return; }
+    show(loadLayer);
+
+    if (hls) { hls.destroy(); hls = null; }
+
+    // iOS / Safari — daxili HLS dəstəyi
+    if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = STREAM;
+      video.play().catch(fail);
+    }
+    // Android / Chrome / Desktop — hls.js
+    else if (window.Hls && Hls.isSupported()) {
+      hls = new Hls({ lowLatencyMode: true, backBufferLength: 30 });
+      hls.loadSource(STREAM);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(fail));
+      hls.on(Hls.Events.ERROR, (e, data) => {
+        if (data.fatal) {
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) { hls.startLoad(); }
+          else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) { hls.recoverMediaError(); }
+          else { fail(); }
+        }
+      });
+    }
+    else { fail(); }
+  }
+
+  video.controls = true;
+  video.addEventListener("playing", () => { show(null); liveBadge.classList.add("show"); });
+  video.addEventListener("waiting", () => { if (loadLayer.classList.contains("hidden") && errorLayer.classList.contains("hidden")) {/* qısa buferləmə — overlay göstərmə */} });
+  video.addEventListener("error", fail);
+
+  document.getElementById("playBtn").addEventListener("click", start);
+  document.getElementById("retryBtn").addEventListener("click", start);
+
+  // Link yoxdursa, başlanğıcda xəbər ver
+  if (!STREAM) show(noSrcLayer);
+  </script>
+</body>
+</html>
